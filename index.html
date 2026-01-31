@@ -3,18 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>音声スタンプラリー距離表示版</title>
+<title>スタンプラリー堅牢版</title>
 <style>
   body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f0f8ff; }
   .card { background: white; padding: 20px; margin: 10px auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); max-width: 400px; }
   h1 { color: #333; }
   button { font-size: 1.2em; padding: 10px 20px; background-color: #ff6347; color: white; border: none; border-radius: 5px; cursor: pointer; }
-  #status { margin-top: 20px; font-weight: bold; min-height: 1.5em; line-height: 1.6; }
-  .spot-list { list-style: none; padding: 0; }
-  .spot-item { background: #eee; margin: 5px; padding: 10px; border-radius: 5px; }
-  .cleared { background-color: #98fb98; font-weight: bold; color: #006400; }
+  button:disabled { background-color: #ccc; cursor: not-allowed; }
   
-  /* 距離表示を目立たせる */
+  #status { margin-top: 20px; font-weight: bold; min-height: 1.5em; line-height: 1.6; }
+  .error-msg { color: red; font-size: 0.9em; margin-top: 10px; background: #ffe6e6; padding: 10px; border-radius: 5px; }
+  
+  /* 距離表示 */
   .distance-info { color: #007bff; font-size: 1.1em; margin-top: 5px; }
   .success-msg { color: red; font-size: 1.2em; font-weight: bold; animation: pop 0.5s ease; }
   @keyframes pop { 0% { transform: scale(0.8); } 50% { transform: scale(1.2); } 100% { transform: scale(1.0); } }
@@ -26,16 +26,19 @@
 
 <div class="card">
   <h1>🗺️ 音声スタンプラリー</h1>
-  <p>あと何メートルで到着するか<br>ナビゲーションします</p>
-  <button onclick="startTour()">ツアーを開始（GPS許可）</button>
+  <p>あと何mで到着するか<br>ナビゲーションします</p>
+  
+  <button id="btnStart" onclick="startTour()">ツアーを開始</button>
+  
   <div id="status">ボタンを押してください</div>
+  <div id="debugLog"></div>
 </div>
 
 <div class="card">
   <h3>スタンプカード</h3>
   <ul id="spotList" class="spot-list">
     </ul>
-  <p class="revision">Rev. 5 (Distance Display)</p>
+  <p class="revision">Rev. 6 (Robust GPS)</p>
 </div>
 
 <script>
@@ -51,51 +54,27 @@ const spots = [
   { name: "② 北のスポット", lat: 34.8344, lng: 134.6934, cleared: false } 
 ];
 
-// ★判定半径を50mに戻しました★
-const RADIUS = 50; 
+const RADIUS = 50; // 半径50m
+let watchId = null; // GPS監視ID
 
 function startTour() {
   if (!navigator.geolocation) {
-    alert("GPSが使えません");
+    alert("この端末はGPS非対応です");
     return;
   }
 
-  // 音声のアンロック処理（開始時に一瞬再生）
+  // ボタンを一時的に無効化
+  const btn = document.getElementById("btnStart");
+  btn.disabled = true;
+  btn.innerText = "起動中...";
+
+  // 音声アンロック
   soundEffect.play().then(() => {
       soundEffect.pause();
       soundEffect.currentTime = 0;
   }).catch(e => {
-      document.getElementById("status").innerText = "⚠️ 画面をもう一度タップしてください";
+      // エラーでも止まらないようにする
+      console.log("Audio unlock failed", e);
   });
 
-  navigator.geolocation.watchPosition(success, error, {
-    enableHighAccuracy: true,
-    timeout: 10000,
-    maximumAge: 0
-  });
-
-  document.getElementById("status").innerText = "📡 GPS測位中...";
-  updateList();
-}
-
-function success(position) {
-  const currentLat = position.coords.latitude;
-  const currentLng = position.coords.longitude;
-  
-  // 1. まず各スポットとの距離を計算して、一番近い目標を探す
-  let nearestDist = Infinity;
-  let nearestName = "";
-  let isJustCleared = false; // 今まさにクリアした瞬間か？
-
-  spots.forEach((spot) => {
-    if (spot.cleared) return; // 既にクリア済みなら計算しない
-
-    const dist = getDistance(currentLat, currentLng, spot.lat, spot.lng);
-    const distToArea = dist - RADIUS; // 「エリアの端」までの距離
-
-    // エリア内に入った！（判定）
-    if (distToArea <= 0) {
-      spot.cleared = true;
-      isJustCleared = true;
-      
-      //
+  document

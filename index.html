@@ -3,19 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>スタンプラリー堅牢版</title>
+<title>音声スタンプラリー修正版</title>
 <style>
   body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f0f8ff; }
   .card { background: white; padding: 20px; margin: 10px auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); max-width: 400px; }
   h1 { color: #333; }
   button { font-size: 1.2em; padding: 10px 20px; background-color: #ff6347; color: white; border: none; border-radius: 5px; cursor: pointer; }
-  button:disabled { background-color: #ccc; cursor: not-allowed; }
+  #status { margin-top: 20px; font-weight: bold; min-height: 1.5em; }
+  .spot-list { list-style: none; padding: 0; }
+  .spot-item { background: #eee; margin: 5px; padding: 10px; border-radius: 5px; }
+  .cleared { background-color: #98fb98; font-weight: bold; color: #006400; }
   
-  #status { margin-top: 20px; font-weight: bold; min-height: 1.5em; line-height: 1.6; }
-  .error-msg { color: red; font-size: 0.9em; margin-top: 10px; background: #ffe6e6; padding: 10px; border-radius: 5px; }
-  
-  /* 距離表示 */
-  .distance-info { color: #007bff; font-size: 1.1em; margin-top: 5px; }
+  /* メッセージを目立たせるスタイル */
   .success-msg { color: red; font-size: 1.2em; font-weight: bold; animation: pop 0.5s ease; }
   @keyframes pop { 0% { transform: scale(0.8); } 50% { transform: scale(1.2); } 100% { transform: scale(1.0); } }
   
@@ -25,56 +24,120 @@
 <body>
 
 <div class="card">
-  <h1>🗺️ 音声スタンプラリー</h1>
-  <p>あと何mで到着するか<br>ナビゲーションします</p>
-  
-  <button id="btnStart" onclick="startTour()">ツアーを開始</button>
-  
+  <h1>🏠 お部屋でスタンプラリー</h1>
+  <p>「ツアーを開始」を押すと<br>音声機能が有効になります</p>
+  <button onclick="startTour()">ツアーを開始（GPS許可）</button>
   <div id="status">ボタンを押してください</div>
-  <div id="debugLog"></div>
 </div>
 
 <div class="card">
   <h3>スタンプカード</h3>
   <ul id="spotList" class="spot-list">
     </ul>
-  <p class="revision">Rev. 6 (Robust GPS)</p>
+  <p class="revision">Rev. 4 (Audio Fix)</p>
 </div>
 
 <script>
-// ★音声ファイルの準備★
+// ★音声ファイルをあらかじめ準備しておきます（グローバル変数）★
+// ※ spot1.mp3 がリポジトリにあることを確認してください
 const soundEffect = new Audio('spot1.mp3');
 
 // ★設定エリア★
 const spots = [
-  // 1. 指定のテスト地点
-  { name: "① テスト地点", lat: 34.8397, lng: 134.6776, cleared: false },
-  
-  // 2. 北にある架空のスポット
-  { name: "② 北のスポット", lat: 34.8344, lng: 134.6934, cleared: false } 
+  // ユーザー設定の座標
+  { name: "① テスト地点（現在地）", lat: 34.8397, lng: 134.6776, cleared: false },
+  { name: "② 北にある架空のスポット", lat: 34.8344, lng: 134.6934, cleared: false } 
 ];
 
-const RADIUS = 50; // 半径50m
-let watchId = null; // GPS監視ID
+// テスト用に広めの500mに設定されています
+const RADIUS = 500; 
 
 function startTour() {
   if (!navigator.geolocation) {
-    alert("この端末はGPS非対応です");
+    alert("GPSが使えません");
     return;
   }
 
-  // ボタンを一時的に無効化
-  const btn = document.getElementById("btnStart");
-  btn.disabled = true;
-  btn.innerText = "起動中...";
-
-  // 音声アンロック
+  // 【重要】ボタンを押した瞬間に、音声を「再生→即停止」して
+  // ブラウザに「音を出していいよ」と許可をもらいます（アンロック処理）
   soundEffect.play().then(() => {
       soundEffect.pause();
       soundEffect.currentTime = 0;
+      console.log("音声機能：ロック解除成功");
   }).catch(e => {
-      // エラーでも止まらないようにする
-      console.log("Audio unlock failed", e);
+      console.log("音声機能：ロック解除失敗（まだ再生できません）", e);
+      document.getElementById("status").innerText = "⚠️ 画面をもう一度タップしてください";
   });
 
-  document
+  // GPS開始
+  navigator.geolocation.watchPosition(success, error, {
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 0
+  });
+
+  document.getElementById("status").innerText = "📡 判定中...";
+  updateList();
+}
+
+function success(position) {
+  const currentLat = position.coords.latitude;
+  const currentLng = position.coords.longitude;
+  
+  // 通常時のステータス表示
+  // （お祝いメッセージが出ていない時だけ座標を表示する）
+  const statusDiv = document.getElementById("status");
+  if (!statusDiv.innerHTML.includes("🎉")) {
+      statusDiv.innerHTML = `📍 あなたの場所<br>${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}`;
+  }
+
+  spots.forEach((spot) => {
+    if (spot.cleared) return;
+
+    const dist = getDistance(currentLat, currentLng, spot.lat, spot.lng);
+    
+    if (dist <= RADIUS) {
+      spot.cleared = true;
+      
+      // ★ここで音を鳴らす★
+      // alert() を削除したので、音が途切れずに再生されます
+      soundEffect.currentTime = 0; // 最初から再生
+      soundEffect.play().catch(e => console.log("再生エラー", e));
+
+      // 画面上の表示を変える（alertの代わり）
+      statusDiv.innerHTML = `<div class='success-msg'>🎉 ${spot.name}<br>スタンプゲット！</div>`;
+      
+      updateList();
+    }
+  });
+}
+
+function updateList() {
+  const list = document.getElementById("spotList");
+  list.innerHTML = "";
+  spots.forEach(spot => {
+    const li = document.createElement("li");
+    li.className = "spot-item " + (spot.cleared ? "cleared" : "");
+    li.innerText = spot.cleared ? `✅ ${spot.name}` : `⬜ ${spot.name}`;
+    list.appendChild(li);
+  });
+}
+
+function error(err) {
+  document.getElementById("status").innerText = "⚠️ GPSエラー";
+}
+
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+</script>
+
+</body>
+</html>

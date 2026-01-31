@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>スタンプラリー・テスト</title>
+<title>自宅でスタンプラリー実験</title>
 <style>
   body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f0f8ff; }
   .card { background: white; padding: 20px; margin: 10px auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); max-width: 400px; }
@@ -12,14 +12,14 @@
   #status { margin-top: 20px; font-weight: bold; }
   .spot-list { list-style: none; padding: 0; }
   .spot-item { background: #eee; margin: 5px; padding: 10px; border-radius: 5px; }
-  .cleared { background-color: #98fb98; font-weight: bold; } /* クリアした時の色 */
+  .cleared { background-color: #98fb98; font-weight: bold; color: #006400; }
 </style>
 </head>
 <body>
 
 <div class="card">
-  <h1>🗺️ スタンプラリー</h1>
-  <p>スポットに近づくとスタンプが押されます！</p>
+  <h1>🏠 お部屋でスタンプラリー</h1>
+  <p>「ツアーを開始」を押すと、<br>今いる場所が判定されます！</p>
   <button onclick="startTour()">ツアーを開始（GPS許可）</button>
   <div id="status">現在地を取得していません</div>
 </div>
@@ -31,40 +31,45 @@
 </div>
 
 <script>
-// ★ここが設定エリアです！後であなたの好きな場所に書き換えます★
+// ★ここが今回の実験ポイントです！★
 const spots = [
-  { name: "スポットA（駅前）", lat: 34.827, lng: 134.693, cleared: false }, // 例：姫路駅付近
-  { name: "スポットB（公園）", lat: 34.833, lng: 134.691, cleared: false }, // 例：姫路城付近
-  { name: "スポットC（広場）", lat: 34.815, lng: 134.685, cleared: false }  // 例：手柄山付近
+  // 1. あなたが教えてくれた座標（半径50m以内ならOK）
+  { name: "① テスト地点（現在地）", lat: 34.8324, lng: 134.6934, cleared: false },
+  
+  // 2. そこから北へ約200m離れた場所（まだクリアできないはず）
+  { name: "② 北にある架空のスポット", lat: 34.8344, lng: 134.6934, cleared: false } 
 ];
 
-const RADIUS = 50; // 反応する半径（メートル）
+const RADIUS = 50; // 判定半径（50メートル）
 
 function startTour() {
   if (!navigator.geolocation) {
-    alert("この端末ではGPSが使えません。");
+    alert("GPSが使えません");
     return;
   }
-  // GPSの監視を開始
   navigator.geolocation.watchPosition(success, error, { enableHighAccuracy: true });
-  document.getElementById("status").innerText = "📡 探索中...";
+  document.getElementById("status").innerText = "📡 判定中...";
   updateList();
 }
 
 function success(position) {
   const currentLat = position.coords.latitude;
   const currentLng = position.coords.longitude;
-  document.getElementById("status").innerText = `📍 現在地: ${currentLat.toFixed(4)}, ${currentLng.toFixed(4)}`;
+  
+  // 画面に現在地を表示（デバッグ用）
+  document.getElementById("status").innerHTML = 
+    `📍 あなたの場所<br>${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}`;
 
-  spots.forEach((spot, index) => {
-    if (spot.cleared) return; // 既にクリアしていればスキップ
+  spots.forEach((spot) => {
+    if (spot.cleared) return; // 既にクリア済みなら無視
 
     const dist = getDistance(currentLat, currentLng, spot.lat, spot.lng);
+    
+    // 判定！距離が半径より近いか？
     if (dist <= RADIUS) {
       spot.cleared = true;
-      alert(`🎉 ${spot.name} に到着！スタンプゲット！`);
+      alert(`🎉 成功です！\n「${spot.name}」のスタンプをゲットしました！`);
       updateList();
-      checkGoal();
     }
   });
 }
@@ -75,26 +80,18 @@ function updateList() {
   spots.forEach(spot => {
     const li = document.createElement("li");
     li.className = "spot-item " + (spot.cleared ? "cleared" : "");
-    li.innerText = spot.cleared ? `✅ ${spot.name} (GET!)` : `⬜ ${spot.name}`;
+    li.innerText = spot.cleared ? `✅ ${spot.name} (GET!)` : `⬜ ${spot.name} (未到達)`;
     list.appendChild(li);
   });
 }
 
-function checkGoal() {
-  const allCleared = spots.every(s => s.cleared);
-  if (allCleared) {
-    document.getElementById("status").innerHTML = "<h2 style='color:red'>🏆 コンプリート！おめでとう！</h2>";
-    // ここでファンファーレなどを鳴らす処理を追加できます
-  }
-}
-
 function error() {
-  document.getElementById("status").innerText = "⚠️ GPS等のエラーが発生しました";
+  document.getElementById("status").innerText = "⚠️ GPSエラー。位置情報をONにしてください。";
 }
 
-// 2点間の距離を測る計算式（Haversine）
+// 距離計算の数学（そのまま使用）
 function getDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // 地球の半径(m)
+  const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +

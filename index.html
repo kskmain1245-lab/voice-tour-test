@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>スタンプラリー広域版</title>
+<title>スタンプラリー堅牢版</title>
 <style>
   body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f0f8ff; }
   .card { background: white; padding: 20px; margin: 10px auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); max-width: 400px; }
@@ -26,7 +26,7 @@
 
 <div class="card">
   <h1>🗺️ 音声スタンプラリー</h1>
-  <p>半径5km以内で反応します<br>（テストモード）</p>
+  <p>あと何mで到着するか<br>ナビゲーションします</p>
   
   <button id="btnStart" onclick="startTour()">ツアーを開始</button>
   
@@ -38,7 +38,7 @@
   <h3>スタンプカード</h3>
   <ul id="spotList" class="spot-list">
     </ul>
-  <p class="revision">Rev. 7 (Radius 5000m)</p>
+  <p class="revision">Rev. 6 (Robust GPS)</p>
 </div>
 
 <script>
@@ -54,10 +54,8 @@ const spots = [
   { name: "② 北のスポット", lat: 34.8344, lng: 134.6934, cleared: false } 
 ];
 
-// ★判定半径を5000m（5km）に変更しました★
-const RADIUS = 5000; 
-
-let watchId = null; 
+const RADIUS = 5000; // 半径50m
+let watchId = null; // GPS監視ID
 
 function startTour() {
   if (!navigator.geolocation) {
@@ -65,6 +63,7 @@ function startTour() {
     return;
   }
 
+  // ボタンを一時的に無効化
   const btn = document.getElementById("btnStart");
   btn.disabled = true;
   btn.innerText = "起動中...";
@@ -74,34 +73,39 @@ function startTour() {
       soundEffect.pause();
       soundEffect.currentTime = 0;
   }).catch(e => {
+      // エラーでも止まらないようにする
       console.log("Audio unlock failed", e);
   });
 
   document.getElementById("status").innerText = "📡 GPS信号を探しています...";
-  document.getElementById("debugLog").innerHTML = "";
+  document.getElementById("debugLog").innerHTML = ""; // エラー消去
 
+  // 以前の監視があればクリア
   if (watchId !== null) {
     navigator.geolocation.clearWatch(watchId);
   }
 
+  // GPS開始（オプションを緩めてタイムアウトしにくく設定）
   watchId = navigator.geolocation.watchPosition(success, error, {
-    enableHighAccuracy: true,
-    timeout: 30000,           
-    maximumAge: 5000          
+    enableHighAccuracy: true, // 高精度
+    timeout: 30000,           // ★変更：30秒待つ（以前は10秒）
+    maximumAge: 5000          // ★変更：5秒以内の古いデータも許容
   });
   
   updateList();
 }
 
 function success(position) {
+  // 成功したらボタンを「再起動」表記に戻して押せるようにする
   const btn = document.getElementById("btnStart");
   btn.innerText = "GPS再起動";
   btn.disabled = false;
 
   const currentLat = position.coords.latitude;
   const currentLng = position.coords.longitude;
-  const accuracy = position.coords.accuracy;
+  const accuracy = position.coords.accuracy; // 誤差(m)
 
+  // 1. 各スポットとの距離計算
   let nearestDist = Infinity;
   let nearestName = "";
   let isJustCleared = false;
@@ -110,4 +114,80 @@ function success(position) {
     if (spot.cleared) return;
 
     const dist = getDistance(currentLat, currentLng, spot.lat, spot.lng);
-    const distToArea = dist - RADIUS; // 残り距離計算
+    const distToArea = dist - RADIUS;
+
+    if (distToArea <= 0) {
+      spot.cleared = true;
+      isJustCleared = true;
+      
+      soundEffect.currentTime = 0;
+      soundEffect.play().catch(e => console.log(e));
+
+      document.getElementById("status").innerHTML = 
+        `<div class='success-msg'>🎉 ${spot.name}<br>スタンプゲット！</div>`;
+      
+      updateList();
+    } else {
+      if (distToArea < nearestDist) {
+        nearestDist = distToArea;
+        nearestName = spot.name;
+      }
+    }
+  });
+
+  // 2. 画面表示
+  if (!isJustCleared) {
+    let statusHTML = `📍 現在地 (誤差±${Math.floor(accuracy)}m)<br><span style="font-size:0.8em">${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}</span>`;
+    
+    if (nearestName !== "") {
+      statusHTML += `<div class="distance-info">🏃‍♂️ 次の ${nearestName} まで<br>あと <b>${Math.ceil(nearestDist)}m</b></div>`;
+    } else {
+      statusHTML += `<div class="distance-info">🎉 全スポットコンプリート！</div>`;
+    }
+    
+    document.getElementById("status").innerHTML = statusHTML;
+  }
+}
+
+function error(err) {
+  const btn = document.getElementById("btnStart");
+  btn.innerText = "再試行する";
+  btn.disabled = false;
+
+  let msg = "";
+  switch(err.code) {
+    case 1: msg = "位置情報の利用が許可されていません。\nブラウザの設定を確認してください。"; break;
+    case 2: msg = "電波状況が悪く、位置が特定できませんでした。\n窓際や屋外で試してください。"; break;
+    case 3: msg = "タイムアウトしました。\n（制限時間内に位置が見つかりませんでした）"; break;
+    default: msg = "不明なエラー: " + err.message;
+  }
+  
+  document.getElementById("status").innerText = "⚠️ エラー発生";
+  document.getElementById("debugLog").innerHTML = `<div class="error-msg">${msg}</div>`;
+}
+
+function updateList() {
+  const list = document.getElementById("spotList");
+  list.innerHTML = "";
+  spots.forEach(spot => {
+    const li = document.createElement("li");
+    li.className = "spot-item " + (spot.cleared ? "cleared" : "");
+    li.innerText = spot.cleared ? `✅ ${spot.name}` : `⬜ ${spot.name}`;
+    list.appendChild(li);
+  });
+}
+
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+</script>
+
+</body>
+</html>

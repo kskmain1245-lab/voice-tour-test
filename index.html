@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>自宅でスタンプラリー実験</title>
+<title>スタンプラリー・テスト</title>
 <style>
   body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f0f8ff; }
   .card { background: white; padding: 20px; margin: 10px auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); max-width: 400px; }
@@ -18,8 +18,8 @@
 <body>
 
 <div class="card">
-  <h1>🏠 お部屋でスタンプラリー</h1>
-  <p>「ツアーを開始」を押すと、<br>今いる場所が判定されます！</p>
+  <h1>🗺️ 音声スタンプラリー</h1>
+  <p>指定の場所に近づくと<br>音が流れてスタンプをゲット！</p>
   <button onclick="startTour()">ツアーを開始（GPS許可）</button>
   <div id="status">現在地を取得していません</div>
 </div>
@@ -31,13 +31,13 @@
 </div>
 
 <script>
-// ★ここが今回の実験ポイントです！★
+// ★設定エリア：座標を書き換えました★
 const spots = [
-  // 1. あなたが教えてくれた座標（半径50m以内ならOK）
-  { name: "① テスト地点（現在地）", lat: 34.8324, lng: 134.6934, cleared: false },
+  // 1. 指定された新しい座標（半径50m以内ならOK）
+  { name: "① 指定のテスト地点", lat: 34.83497127593877, lng: 134.67767961322787, cleared: false },
   
-  // 2. そこから北へ約200m離れた場所（まだクリアできないはず）
-  { name: "② 北にある架空のスポット", lat: 34.8344, lng: 134.6934, cleared: false } 
+  // 2. そこから少し北へずらした架空のスポット（比較用）
+  { name: "② 北にある架空のスポット", lat: 34.8369, lng: 134.6776, cleared: false } 
 ];
 
 const RADIUS = 50; // 判定半径（50メートル）
@@ -47,8 +47,12 @@ function startTour() {
     alert("GPSが使えません");
     return;
   }
+  // ※iOSなどで音を鳴らすため、開始時に無音を一瞬再生するテクニック
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  audioContext.resume();
+
   navigator.geolocation.watchPosition(success, error, { enableHighAccuracy: true });
-  document.getElementById("status").innerText = "📡 判定中...";
+  document.getElementById("status").innerText = "📡 探索中...";
   updateList();
 }
 
@@ -56,9 +60,9 @@ function success(position) {
   const currentLat = position.coords.latitude;
   const currentLng = position.coords.longitude;
   
-  // 画面に現在地を表示（デバッグ用）
+  // 画面に現在地を表示
   document.getElementById("status").innerHTML = 
-    `📍 あなたの場所<br>${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}`;
+    `📍 現在地<br>${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}`;
 
   spots.forEach((spot) => {
     if (spot.cleared) return; // 既にクリア済みなら無視
@@ -66,15 +70,21 @@ function success(position) {
     const dist = getDistance(currentLat, currentLng, spot.lat, spot.lng);
     
     // 判定！距離が半径より近いか？
-if (dist <= RADIUS) {
+    if (dist <= RADIUS) {
       spot.cleared = true;
       
-      // ★追加：音を鳴らす魔法のコード★
-      // ファイル名が合っていないと鳴らないので注意！
+      // ★音を鳴らす処理★
+      // リポジトリに spot1.mp3 があることを確認してください
       const audio = new Audio('spot1.mp3'); 
-      audio.play().catch(e => alert("再生エラー: 画面を一度タップしてから試してください"));
+      audio.play()
+        .then(() => {
+            alert(`🎉 ${spot.name} に到着！\n（音が流れます）`);
+        })
+        .catch(e => {
+            console.log(e);
+            alert(`🎉 ${spot.name} に到着！\n（再生エラー: 画面をタップしてから試してください）`);
+        });
 
-      alert(`🎉 成功です！\n「${spot.name}」のスタンプをゲットしました！\n（音が流れます）`);
       updateList();
     }
   });
@@ -86,7 +96,7 @@ function updateList() {
   spots.forEach(spot => {
     const li = document.createElement("li");
     li.className = "spot-item " + (spot.cleared ? "cleared" : "");
-    li.innerText = spot.cleared ? `✅ ${spot.name} (GET!)` : `⬜ ${spot.name} (未到達)`;
+    li.innerText = spot.cleared ? `✅ ${spot.name} (GET!)` : `⬜ ${spot.name}`;
     list.appendChild(li);
   });
 }
@@ -95,7 +105,7 @@ function error() {
   document.getElementById("status").innerText = "⚠️ GPSエラー。位置情報をONにしてください。";
 }
 
-// 距離計算の数学（そのまま使用）
+// 距離計算（Haversine）
 function getDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -103,10 +113,4 @@ function getDistance(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
             Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-</script>
-
-</body>
-</html>
+  const c = 2 * Math.atan2(Math.sqrt

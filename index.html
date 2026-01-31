@@ -66,9 +66,15 @@ function success(position) {
     const dist = getDistance(currentLat, currentLng, spot.lat, spot.lng);
     
     // 判定！距離が半径より近いか？
-    if (dist <= RADIUS) {
+if (dist <= RADIUS) {
       spot.cleared = true;
-      alert(`🎉 成功です！\n「${spot.name}」のスタンプをゲットしました！`);
+      
+      // ★追加：音を鳴らす魔法のコード★
+      // ファイル名が合っていないと鳴らないので注意！
+      const audio = new Audio('spot1.mp3'); 
+      audio.play().catch(e => alert("再生エラー: 画面を一度タップしてから試してください"));
+
+      alert(`🎉 成功です！\n「${spot.name}」のスタンプをゲットしました！\n（音が流れます）`);
       updateList();
     }
   });

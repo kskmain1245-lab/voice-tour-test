@@ -13,6 +13,9 @@
   .spot-list { list-style: none; padding: 0; }
   .spot-item { background: #eee; margin: 5px; padding: 10px; border-radius: 5px; }
   .cleared { background-color: #98fb98; font-weight: bold; color: #006400; }
+  
+  /* リビジョン表記用のスタイル（目立たない灰色） */
+  .revision { font-size: 10px; color: #aaa; margin-top: 20px; }
 </style>
 </head>
 <body>
@@ -22,6 +25,7 @@
   <p>現在地を取得できるか<br>再テストします</p>
   <button onclick="startTour()">ツアーを開始（GPS許可）</button>
   <div id="status">ボタンを押してください</div>
+  
   <div id="debug" style="color:red; font-size:0.8em; margin-top:10px;"></div>
 </div>
 
@@ -29,20 +33,20 @@
   <h3>スタンプカード</h3>
   <ul id="spotList" class="spot-list">
     </ul>
+  
+  <p class="revision">Rev. 3 (GPS修正版)</p>
 </div>
 
 <script>
-// ★設定：座標はご指定の場所にしています★
+// ★設定：ご指定の場所★
 const spots = [
   { name: "① 指定のテスト地点", lat: 34.83497127593877, lng: 134.67767961322787, cleared: false },
-  { name: "② 架空の北スポット", lat: 34.8369, lng: 134.6776, cleared: false } 
+  { name: "② 北のスポット", lat: 34.8369, lng: 134.6776, cleared: false } 
 ];
 
 const RADIUS = 50; // 半径50m
 
 function startTour() {
-  // エラー原因になりやすい AudioContext の記述を削除しました
-  
   if (!navigator.geolocation) {
     alert("お使いの端末ではGPSが使えません");
     return;
@@ -52,9 +56,9 @@ function startTour() {
   
   // GPS取得開始
   navigator.geolocation.watchPosition(success, error, {
-    enableHighAccuracy: true, // 高精度モード
-    timeout: 10000,           // 10秒でタイムアウト
-    maximumAge: 0             // 常に最新の位置を取る
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 0
   });
 
   updateList();
@@ -67,7 +71,6 @@ function success(position) {
   document.getElementById("status").innerHTML = 
     `📍 現在地<br>${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}`;
   
-  // エラー表示エリアをクリア
   document.getElementById("debug").innerText = "";
 
   spots.forEach((spot) => {
@@ -78,10 +81,9 @@ function success(position) {
     if (dist <= RADIUS) {
       spot.cleared = true;
       
-      // 音を鳴らす（シンプルな方法に戻しました）
       const audio = new Audio('spot1.mp3');
       audio.play().catch(e => {
-         // 自動再生がブロックされた場合
+         // 自動再生ブロック時
          alert("スタンプゲット！\n（画面をタップすると音が鳴ります）");
       });
 
@@ -92,36 +94,6 @@ function success(position) {
 }
 
 function error(err) {
-  // どんなエラーが出たか画面に表示する（デバッグ用）
   const errorMsg = `エラーコード: ${err.code}\n内容: ${err.message}`;
   document.getElementById("status").innerText = "⚠️ GPSエラー";
   document.getElementById("debug").innerText = errorMsg;
-  console.warn(errorMsg);
-}
-
-function updateList() {
-  const list = document.getElementById("spotList");
-  list.innerHTML = "";
-  spots.forEach(spot => {
-    const li = document.createElement("li");
-    li.className = "spot-item " + (spot.cleared ? "cleared" : "");
-    li.innerText = spot.cleared ? `✅ ${spot.name}` : `⬜ ${spot.name}`;
-    list.appendChild(li);
-  });
-}
-
-// 距離計算
-function getDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-</script>
-
-</body>
-</html>

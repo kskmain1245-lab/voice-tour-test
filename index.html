@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>スタンプラリー・テスト</title>
+<title>スタンプラリー修正版</title>
 <style>
   body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f0f8ff; }
   .card { background: white; padding: 20px; margin: 10px auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); max-width: 400px; }
   h1 { color: #333; }
   button { font-size: 1.2em; padding: 10px 20px; background-color: #ff6347; color: white; border: none; border-radius: 5px; cursor: pointer; }
-  #status { margin-top: 20px; font-weight: bold; }
+  #status { margin-top: 20px; font-weight: bold; min-height: 1.5em; }
   .spot-list { list-style: none; padding: 0; }
   .spot-item { background: #eee; margin: 5px; padding: 10px; border-radius: 5px; }
   .cleared { background-color: #98fb98; font-weight: bold; color: #006400; }
@@ -19,9 +19,10 @@
 
 <div class="card">
   <h1>🗺️ 音声スタンプラリー</h1>
-  <p>指定の場所に近づくと<br>音が流れてスタンプをゲット！</p>
+  <p>現在地を取得できるか<br>再テストします</p>
   <button onclick="startTour()">ツアーを開始（GPS許可）</button>
-  <div id="status">現在地を取得していません</div>
+  <div id="status">ボタンを押してください</div>
+  <div id="debug" style="color:red; font-size:0.8em; margin-top:10px;"></div>
 </div>
 
 <div class="card">
@@ -31,28 +32,31 @@
 </div>
 
 <script>
-// ★設定エリア：座標を書き換えました★
+// ★設定：座標はご指定の場所にしています★
 const spots = [
-  // 1. 指定された新しい座標（半径50m以内ならOK）
   { name: "① 指定のテスト地点", lat: 34.83497127593877, lng: 134.67767961322787, cleared: false },
-  
-  // 2. そこから少し北へずらした架空のスポット（比較用）
-  { name: "② 北にある架空のスポット", lat: 34.8369, lng: 134.6776, cleared: false } 
+  { name: "② 架空の北スポット", lat: 34.8369, lng: 134.6776, cleared: false } 
 ];
 
-const RADIUS = 50; // 判定半径（50メートル）
+const RADIUS = 50; // 半径50m
 
 function startTour() {
+  // エラー原因になりやすい AudioContext の記述を削除しました
+  
   if (!navigator.geolocation) {
-    alert("GPSが使えません");
+    alert("お使いの端末ではGPSが使えません");
     return;
   }
-  // ※iOSなどで音を鳴らすため、開始時に無音を一瞬再生するテクニック
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  audioContext.resume();
 
-  navigator.geolocation.watchPosition(success, error, { enableHighAccuracy: true });
-  document.getElementById("status").innerText = "📡 探索中...";
+  document.getElementById("status").innerText = "📡 GPS起動中...";
+  
+  // GPS取得開始
+  navigator.geolocation.watchPosition(success, error, {
+    enableHighAccuracy: true, // 高精度モード
+    timeout: 10000,           // 10秒でタイムアウト
+    maximumAge: 0             // 常に最新の位置を取る
+  });
+
   updateList();
 }
 
@@ -60,34 +64,39 @@ function success(position) {
   const currentLat = position.coords.latitude;
   const currentLng = position.coords.longitude;
   
-  // 画面に現在地を表示
   document.getElementById("status").innerHTML = 
     `📍 現在地<br>${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}`;
+  
+  // エラー表示エリアをクリア
+  document.getElementById("debug").innerText = "";
 
   spots.forEach((spot) => {
-    if (spot.cleared) return; // 既にクリア済みなら無視
+    if (spot.cleared) return;
 
     const dist = getDistance(currentLat, currentLng, spot.lat, spot.lng);
     
-    // 判定！距離が半径より近いか？
     if (dist <= RADIUS) {
       spot.cleared = true;
       
-      // ★音を鳴らす処理★
-      // リポジトリに spot1.mp3 があることを確認してください
-      const audio = new Audio('spot1.mp3'); 
-      audio.play()
-        .then(() => {
-            alert(`🎉 ${spot.name} に到着！\n（音が流れます）`);
-        })
-        .catch(e => {
-            console.log(e);
-            alert(`🎉 ${spot.name} に到着！\n（再生エラー: 画面をタップしてから試してください）`);
-        });
+      // 音を鳴らす（シンプルな方法に戻しました）
+      const audio = new Audio('spot1.mp3');
+      audio.play().catch(e => {
+         // 自動再生がブロックされた場合
+         alert("スタンプゲット！\n（画面をタップすると音が鳴ります）");
+      });
 
+      alert(`🎉 ${spot.name} に到着！`);
       updateList();
     }
   });
+}
+
+function error(err) {
+  // どんなエラーが出たか画面に表示する（デバッグ用）
+  const errorMsg = `エラーコード: ${err.code}\n内容: ${err.message}`;
+  document.getElementById("status").innerText = "⚠️ GPSエラー";
+  document.getElementById("debug").innerText = errorMsg;
+  console.warn(errorMsg);
 }
 
 function updateList() {
@@ -96,16 +105,12 @@ function updateList() {
   spots.forEach(spot => {
     const li = document.createElement("li");
     li.className = "spot-item " + (spot.cleared ? "cleared" : "");
-    li.innerText = spot.cleared ? `✅ ${spot.name} (GET!)` : `⬜ ${spot.name}`;
+    li.innerText = spot.cleared ? `✅ ${spot.name}` : `⬜ ${spot.name}`;
     list.appendChild(li);
   });
 }
 
-function error() {
-  document.getElementById("status").innerText = "⚠️ GPSエラー。位置情報をONにしてください。";
-}
-
-// 距離計算（Haversine）
+// 距離計算
 function getDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -113,4 +118,10 @@ function getDistance(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
             Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+</script>
+
+</body>
+</html>

@@ -3,18 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>音声スタンプラリー修正版</title>
+<title>スタンプラリー堅牢版</title>
 <style>
   body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f0f8ff; }
   .card { background: white; padding: 20px; margin: 10px auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); max-width: 400px; }
   h1 { color: #333; }
   button { font-size: 1.2em; padding: 10px 20px; background-color: #ff6347; color: white; border: none; border-radius: 5px; cursor: pointer; }
-  #status { margin-top: 20px; font-weight: bold; min-height: 1.5em; }
-  .spot-list { list-style: none; padding: 0; }
-  .spot-item { background: #eee; margin: 5px; padding: 10px; border-radius: 5px; }
-  .cleared { background-color: #98fb98; font-weight: bold; color: #006400; }
+  button:disabled { background-color: #ccc; cursor: not-allowed; }
   
-  /* メッセージを目立たせるスタイル */
+  #status { margin-top: 20px; font-weight: bold; min-height: 1.5em; line-height: 1.6; }
+  .error-msg { color: red; font-size: 0.9em; margin-top: 10px; background: #ffe6e6; padding: 10px; border-radius: 5px; }
+  
+  /* 距離表示 */
+  .distance-info { color: #007bff; font-size: 1.1em; margin-top: 5px; }
   .success-msg { color: red; font-size: 1.2em; font-weight: bold; animation: pop 0.5s ease; }
   @keyframes pop { 0% { transform: scale(0.8); } 50% { transform: scale(1.2); } 100% { transform: scale(1.0); } }
   
@@ -24,92 +25,145 @@
 <body>
 
 <div class="card">
-  <h1>🏠 お部屋でスタンプラリー</h1>
-  <p>「ツアーを開始」を押すと<br>音声機能が有効になります</p>
-  <button onclick="startTour()">ツアーを開始（GPS許可）</button>
+  <h1>🗺️ 音声スタンプラリー</h1>
+  <p>あと何mで到着するか<br>ナビゲーションします</p>
+  
+  <button id="btnStart" onclick="startTour()">ツアーを開始</button>
+  
   <div id="status">ボタンを押してください</div>
+  <div id="debugLog"></div>
 </div>
 
 <div class="card">
   <h3>スタンプカード</h3>
   <ul id="spotList" class="spot-list">
     </ul>
-  <p class="revision">Rev. 4 (Audio Fix)</p>
+  <p class="revision">Rev. 6 (Robust GPS)</p>
 </div>
 
 <script>
-// ★音声ファイルをあらかじめ準備しておきます（グローバル変数）★
-// ※ spot1.mp3 がリポジトリにあることを確認してください
+// ★音声ファイルの準備★
 const soundEffect = new Audio('spot1.mp3');
 
 // ★設定エリア★
 const spots = [
-  // ユーザー設定の座標
-  { name: "① テスト地点（現在地）", lat: 34.8397, lng: 134.6776, cleared: false },
-  { name: "② 北にある架空のスポット", lat: 34.8344, lng: 134.6934, cleared: false } 
+  // 1. 指定のテスト地点
+  { name: "① テスト地点", lat: 34.8397, lng: 134.6776, cleared: false },
+  
+  // 2. 北にある架空のスポット
+  { name: "② 北のスポット", lat: 34.8344, lng: 134.6934, cleared: false } 
 ];
 
-// テスト用に広めの500mに設定されています
-const RADIUS = 500; 
+const RADIUS = 50; // 半径50m
+let watchId = null; // GPS監視ID
 
 function startTour() {
   if (!navigator.geolocation) {
-    alert("GPSが使えません");
+    alert("この端末はGPS非対応です");
     return;
   }
 
-  // 【重要】ボタンを押した瞬間に、音声を「再生→即停止」して
-  // ブラウザに「音を出していいよ」と許可をもらいます（アンロック処理）
+  // ボタンを一時的に無効化
+  const btn = document.getElementById("btnStart");
+  btn.disabled = true;
+  btn.innerText = "起動中...";
+
+  // 音声アンロック
   soundEffect.play().then(() => {
       soundEffect.pause();
       soundEffect.currentTime = 0;
-      console.log("音声機能：ロック解除成功");
   }).catch(e => {
-      console.log("音声機能：ロック解除失敗（まだ再生できません）", e);
-      document.getElementById("status").innerText = "⚠️ 画面をもう一度タップしてください";
+      // エラーでも止まらないようにする
+      console.log("Audio unlock failed", e);
   });
 
-  // GPS開始
-  navigator.geolocation.watchPosition(success, error, {
-    enableHighAccuracy: true,
-    timeout: 10000,
-    maximumAge: 0
-  });
+  document.getElementById("status").innerText = "📡 GPS信号を探しています...";
+  document.getElementById("debugLog").innerHTML = ""; // エラー消去
 
-  document.getElementById("status").innerText = "📡 判定中...";
+  // 以前の監視があればクリア
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+  }
+
+  // GPS開始（オプションを緩めてタイムアウトしにくく設定）
+  watchId = navigator.geolocation.watchPosition(success, error, {
+    enableHighAccuracy: true, // 高精度
+    timeout: 30000,           // ★変更：30秒待つ（以前は10秒）
+    maximumAge: 5000          // ★変更：5秒以内の古いデータも許容
+  });
+  
   updateList();
 }
 
 function success(position) {
+  // 成功したらボタンを「再起動」表記に戻して押せるようにする
+  const btn = document.getElementById("btnStart");
+  btn.innerText = "GPS再起動";
+  btn.disabled = false;
+
   const currentLat = position.coords.latitude;
   const currentLng = position.coords.longitude;
-  
-  // 通常時のステータス表示
-  // （お祝いメッセージが出ていない時だけ座標を表示する）
-  const statusDiv = document.getElementById("status");
-  if (!statusDiv.innerHTML.includes("🎉")) {
-      statusDiv.innerHTML = `📍 あなたの場所<br>${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}`;
-  }
+  const accuracy = position.coords.accuracy; // 誤差(m)
+
+  // 1. 各スポットとの距離計算
+  let nearestDist = Infinity;
+  let nearestName = "";
+  let isJustCleared = false;
 
   spots.forEach((spot) => {
     if (spot.cleared) return;
 
     const dist = getDistance(currentLat, currentLng, spot.lat, spot.lng);
-    
-    if (dist <= RADIUS) {
-      spot.cleared = true;
-      
-      // ★ここで音を鳴らす★
-      // alert() を削除したので、音が途切れずに再生されます
-      soundEffect.currentTime = 0; // 最初から再生
-      soundEffect.play().catch(e => console.log("再生エラー", e));
+    const distToArea = dist - RADIUS;
 
-      // 画面上の表示を変える（alertの代わり）
-      statusDiv.innerHTML = `<div class='success-msg'>🎉 ${spot.name}<br>スタンプゲット！</div>`;
+    if (distToArea <= 0) {
+      spot.cleared = true;
+      isJustCleared = true;
+      
+      soundEffect.currentTime = 0;
+      soundEffect.play().catch(e => console.log(e));
+
+      document.getElementById("status").innerHTML = 
+        `<div class='success-msg'>🎉 ${spot.name}<br>スタンプゲット！</div>`;
       
       updateList();
+    } else {
+      if (distToArea < nearestDist) {
+        nearestDist = distToArea;
+        nearestName = spot.name;
+      }
     }
   });
+
+  // 2. 画面表示
+  if (!isJustCleared) {
+    let statusHTML = `📍 現在地 (誤差±${Math.floor(accuracy)}m)<br><span style="font-size:0.8em">${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}</span>`;
+    
+    if (nearestName !== "") {
+      statusHTML += `<div class="distance-info">🏃‍♂️ 次の ${nearestName} まで<br>あと <b>${Math.ceil(nearestDist)}m</b></div>`;
+    } else {
+      statusHTML += `<div class="distance-info">🎉 全スポットコンプリート！</div>`;
+    }
+    
+    document.getElementById("status").innerHTML = statusHTML;
+  }
+}
+
+function error(err) {
+  const btn = document.getElementById("btnStart");
+  btn.innerText = "再試行する";
+  btn.disabled = false;
+
+  let msg = "";
+  switch(err.code) {
+    case 1: msg = "位置情報の利用が許可されていません。\nブラウザの設定を確認してください。"; break;
+    case 2: msg = "電波状況が悪く、位置が特定できませんでした。\n窓際や屋外で試してください。"; break;
+    case 3: msg = "タイムアウトしました。\n（制限時間内に位置が見つかりませんでした）"; break;
+    default: msg = "不明なエラー: " + err.message;
+  }
+  
+  document.getElementById("status").innerText = "⚠️ エラー発生";
+  document.getElementById("debugLog").innerHTML = `<div class="error-msg">${msg}</div>`;
 }
 
 function updateList() {
@@ -121,10 +175,6 @@ function updateList() {
     li.innerText = spot.cleared ? `✅ ${spot.name}` : `⬜ ${spot.name}`;
     list.appendChild(li);
   });
-}
-
-function error(err) {
-  document.getElementById("status").innerText = "⚠️ GPSエラー";
 }
 
 function getDistance(lat1, lon1, lat2, lon2) {
